@@ -360,8 +360,13 @@ def main(argv: list[str] | None = None) -> int:
                 switch_page(current_page + 1)
             elif cmd == "prev":
                 switch_page(current_page - 1)
+            elif cmd == "first":
+                switch_page(0)
+            elif cmd == "last":
+                switch_page(len(pages) - 1)
             elif cmd.isdigit():
                 switch_page(int(cmd))
+
         else:
             run_actions(action, dry_run=args.dry_run)
 

@@ -75,8 +75,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
     "actions": {
         "button.7.press": "__page:next__",
-        "button.8.press": "__page:prev__",
-        "button.9.press": "hyprctl dispatch workspace 3",
+        "button.8.press": "__page:first__",
+        "button.9.press": "__page:prev__",
         "knob.1.left":  "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
         "knob.1.right": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
         "knob.1.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
