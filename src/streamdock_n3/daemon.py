@@ -37,8 +37,15 @@ except ImportError:  # pragma: no cover
     list_devices = None  # type: ignore[assignment]
 
 
-VID = "6603"
-PID = "1003"
+SUPPORTED_DEVICES = [
+      ("6603", "1003"),  # FHOOU/Mirabox N3 Original
+      ("5548", "1001"),  # HOTSPOTEKUSB N3 Alternative
+    #   ("6603", "1002"),  # FHOOU/Mirabox N3       NOT TESTED
+    #   ("6603", "2929"),  # FHOOU/Mirabox N3 V2    NOT TESTED
+    #   ("6603", "3001"),  # FHOOU/Mirabox N3 V2.5  NOT TESTED
+  ]
+VID, PID = SUPPORTED_DEVICES[0]  # default for compatibility with older versions of the daemon that only supported one device.
+
 
 
 def run_command(command: str, *, dry_run: bool) -> None:
@@ -108,14 +115,14 @@ def open_device():
 
 def hidraw_paths() -> list[Path]:
     out = []
-    token = f"v0000{VID.upper()}p0000{PID.upper()}"
+    tokens = {f"v0000{v.upper()}p0000{p.upper()}" for v, p in SUPPORTED_DEVICES}
     for hidraw in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
         uevent = hidraw / "device" / "uevent"
         try:
             text = uevent.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if token in text:
+        if any(token in text for token in tokens):
             out.append(Path("/dev") / hidraw.name)
     return out
 
@@ -134,10 +141,10 @@ def is_streamdock_evdev(path: str) -> bool:
         info = dev.info
         name = (dev.name or "").lower()
         return (
-            (info.vendor == int(VID, 16) and info.product == int(PID, 16))
+            any(info.vendor == int(v, 16) and info.product == int(p, 16) for v, p in SUPPORTED_DEVICES)
             or "hotspotekusb" in name
             or "streamdock" in name
-        )
+        ) 
     finally:
         with contextlib.suppress(OSError):
             dev.close()
