@@ -14,14 +14,40 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "brightness": 80,
     "grab_evdev": True,
     "theme": "system",
-    "keys": {
-        "1": {"label": "Term", "color": "#1c63b8"},
-        "2": {"label": "Web", "color": "#188452"},
-        "3": {"label": "Files", "color": "#b55324"},
-        "4": {"label": "OBS", "color": "#8444a8"},
-        "5": {"label": "Mute", "color": "#327a8a"},
-        "6": {"label": "Play", "color": "#ae365c"},
-    },
+    "pages": [
+      {
+          "name": "Page 1",
+          "keys": {
+              "1": {"label": "Term", "color": "#1c63b8"},
+              "2": {"label": "Web", "color": "#188452"},
+              "3": {"label": "Files", "color": "#b55324"},
+              "4": {"label": "OBS", "color": "#8444a8"},
+              "5": {"label": "Mute", "color": "#327a8a"},
+              "6": {"label": "Play", "color": "#ae365c"},
+          },
+          "actions": {
+              "button.1.press": "alacritty",
+              "button.2.press": "xdg-open https://",
+              "button.3.press": "xdg-open \"$HOME\"",
+              "button.4.press": "obs",
+              "button.5.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+              "button.6.press": "playerctl play-pause",
+          },
+      },
+      {
+          "name": "Page 2",
+          "keys": {
+              "1": {"label": "P2 K1", "color": "#333333"},
+              "2": {"label": "P2 K2", "color": "#333333"},
+              "3": {"label": "P2 K3", "color": "#333333"},
+              "4": {"label": "P2 K4", "color": "#333333"},
+              "5": {"label": "P2 K5", "color": "#333333"},
+              "6": {"label": "P2 K6", "color": "#333333"},
+          },
+          "actions": {},
+      },
+  ],
+
     "actions": {
         "button.1.press": "alacritty",
         "button.2.press": "xdg-open https://",
