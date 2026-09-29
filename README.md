@@ -14,6 +14,15 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/in
 
 That's it. The script fetches the latest release wheel, installs it via `pipx` (with `--system-site-packages` so the GUI can import PyGObject), then runs `sudo streamdock-n3-install` to drop the udev rule, systemd user service, and desktop entry. You'll be prompted for your sudo password once.
 
+During system installation, the installer checks USB vendor IDs `6603` (Mirabox) and `5548` (HOTSPOTEKUSB). It always asks you to confirm the rule: if exactly one supported device is connected, that device is the default and Enter confirms it; if both or neither are detected, choose one explicitly. The selected rule is always installed as `/etc/udev/rules.d/99-streamdock.rules`.
+
+The GUI's **Install service** button shows the same device choice. For scripted installs, pass the choice directly:
+
+```bash
+sudo streamdock-n3-install --device mirabox
+sudo streamdock-n3-install --device hotspotekusb
+```
+
 After it finishes:
 
 ```bash
@@ -63,6 +72,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now streamdock-n3.service
 ```
 
+Without `--device`, `streamdock-n3-install` asks which supported USB device's rule to install. The chosen rule is written to `/etc/udev/rules.d/99-streamdock.rules`.
+
 > **Why `--system-site-packages`?** The GUI uses GTK4 via `python-gobject`, which is provided by the distro and not reliably installable via pip. Sharing the user's site-packages lets `streamdock-n3-gui` import it. The daemon and probe/debug entry points work either way.
 
 Then unplug and replug the Stream Dock so udev rules apply.
@@ -80,8 +91,10 @@ Or for distro packaging:
 
 ```bash
 make build
-make DESTDIR=$pkgdir install
+make DESTDIR=$pkgdir DEVICE=hotspotekusb install
 ```
+
+For distro packaging, set `DEVICE` to `mirabox` or `hotspotekusb` to choose the udev rule explicitly. If omitted, `make install-data` detects connected devices and prompts for confirmation. The selected rule is packaged as `/etc/udev/rules.d/99-streamdock.rules`.
 
 ## Commands
 
@@ -93,8 +106,8 @@ streamdock-n3          Daemon. Reads ~/.config/streamdock-n3/config.json,
 streamdock-n3-gui      GTK4 GUI for editing the config.
 streamdock-n3-probe    SDK smoke test (enumerate, set test icons, print events).
 streamdock-n3-debug    Raw hidraw + evdev diagnostics.
-streamdock-n3-install  Install udev rule, systemd user unit, desktop entry
-                       (run with sudo).
+streamdock-n3-install  Install selected device udev rule, systemd user unit,
+                       desktop entry (run with sudo; accepts --device).
 ```
 
 `streamdock-n3` flags:
@@ -115,7 +128,7 @@ streamdock-n3-install  Install udev rule, systemd user unit, desktop entry
 |---|---|---|
 | ![Status tab](docs/screenshot-status.png) | ![Keys tab](docs/screenshot-keys.png) | ![Actions tab](docs/screenshot-actions.png) |
 
-- **Status** detects the dock via `/sys/bus/usb/devices`, exposes Start / Restart / Stop, brightness slider, and an Install button that runs `pkexec streamdock-n3-install`.
+- **Status** detects the dock via `/sys/bus/usb/devices`, exposes Start / Restart / Stop, brightness slider, and an Install button that detects and asks you to confirm the Mirabox or HOTSPOTEKUSB rule before running the privileged installer.
 - **Keys** has one card per LCD key. Each key is either **Label** mode (text + background color) or **Image** mode (custom image path, center-cropped to square). **Pick app…** scans `.desktop` files and assigns the chosen app's icon + `Exec` command in one step. Use the **◀ ▶** buttons to navigate between pages, **＋ Add page** to create a new one, and **🗑 Delete page** to remove the current one (disabled when only one page exists). The page name is editable inline.
 - **Actions** edits the three round-button and three-knob (left / right / press) command mappings. These are global and apply across all pages.
 

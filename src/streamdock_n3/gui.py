@@ -16,6 +16,7 @@ from typing import Any
 
 from streamdock_n3 import config as configmod
 from streamdock_n3 import paths
+from streamdock_n3 import system_install as installmod
 from streamdock_n3 import theme as thememod
 
 paths.ensure_runtime_dirs()
@@ -122,14 +123,14 @@ def service_installed() -> bool:
     return SERVICE_SYSTEM_PATH.exists() or SERVICE_USER_PATH.exists()
 
 
-def install_service_via_pkexec() -> tuple[bool, str]:
+def install_service_via_pkexec(device: str) -> tuple[bool, str]:
     """Run `pkexec streamdock-n3-install` to install udev/service/desktop system-wide."""
     bin_path = shutil.which("streamdock-n3-install")
     if not bin_path:
         return False, "streamdock-n3-install not found on PATH"
     try:
         r = subprocess.run(
-            ["pkexec", bin_path],
+            ["pkexec", bin_path, "--device", device],
             capture_output=True, text=True, timeout=60,
         )
         log.info("pkexec install rc=%s out=%r", r.returncode, r.stdout + r.stderr)
@@ -1105,7 +1106,41 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_install_service(self, _btn: Gtk.Button) -> None:
         log.info("install service clicked")
-        ok, msg = install_service_via_pkexec()
+        detected = installmod.detect_connected_devices()
+        default = detected[0] if len(detected) == 1 else None
+        if detected:
+            detected_names = ", ".join(
+                installmod.DEVICE_RULES[key][0] for key in detected
+            )
+            if default:
+                default_name = installmod.DEVICE_RULES[default][0]
+                message = (
+                    f"Detected: {detected_names}. Default: {default_name}. "
+                    "Confirm or choose the other device."
+                )
+            else:
+                message = f"Detected: {detected_names}. Choose which udev rule to install."
+        else:
+            message = "No supported USB device detected. Choose which udev rule to install."
+
+        dialog = Gtk.Dialog(title="Select Stream Dock", transient_for=self, modal=True)
+        dialog.get_content_area().append(Gtk.Label(label=message, wrap=True))
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Mirabox", 1)
+        dialog.add_button("HOTSPOTEKUSB", 2)
+        if default == "mirabox":
+            dialog.set_default_response(1)
+        elif default == "hotspotekusb":
+            dialog.set_default_response(2)
+        dialog.connect("response", self._on_install_device_response)
+        dialog.present()
+
+    def _on_install_device_response(self, dialog: Gtk.Dialog, response: int) -> None:
+        dialog.destroy()
+        device = {1: "mirabox", 2: "hotspotekusb"}.get(response)
+        if device is None:
+            return
+        ok, msg = install_service_via_pkexec(device)
         self.toast("Service installed" if ok else f"Install failed: {msg}")
         self._refresh_status()
 
