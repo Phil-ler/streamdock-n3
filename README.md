@@ -189,7 +189,7 @@ Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.conf
         "6": {"label": "Steam",    "color": "#ae365c"}
       },
       "actions": {
-        "button.1.press": "alacritty",
+        "button.1.press": "konsole",
         "button.2.press": "xdg-open https://",
         "button.3.press": "xdg-open \"$HOME\"",
         "button.4.press": "strawberry",
@@ -209,11 +209,11 @@ Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.conf
       },
       "actions": {
         "button.1.press": "code",
-        "button.2.press": "alacritty",
+        "button.2.press": "konsole",
         "button.3.press": "xdg-open https://",
-        "button.4.press": "alacritty -e bash -c 'git pull; read'",
-        "button.5.press": "alacritty -e bash -c 'git push; read'",
-        "button.6.press": "alacritty -e bash -c 'git log --oneline -20; read'"
+        "button.4.press": "konsole -e bash -c 'git pull; read'",
+        "button.5.press": "konsole -e bash -c 'git push; read'",
+        "button.6.press": "konsole -e bash -c 'git log --oneline -20; read'"
       }
     },
     {
@@ -230,7 +230,7 @@ Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.conf
         "button.1.press": "flameshot gui",
         "button.2.press": "simplescreenrecorder",
         "button.3.press": "obs",
-        "button.4.press": "alacritty -e btop",
+        "button.4.press": "konsole -e btop",
         "button.5.press": "systemctl reboot",
         "button.6.press": "systemctl poweroff"
       }
@@ -272,7 +272,7 @@ Global `actions` (knobs, evdev, button.7–9) apply across all pages.
 {
   "brightness": 80,
   "keys": { "1": { "label": "Term", "color": "#1c63b8" } },
-  "actions": { "button.1.press": "alacritty" }
+  "actions": { "button.1.press": "konsole" }
 }
 ```
 
@@ -344,7 +344,7 @@ Default mapping:
 
 ```text
 Page: Apps
-1  Terminal  alacritty              knob 1  speaker volume / mute
+1  Terminal  konsole              knob 1  speaker volume / mute
 2  Browser   xdg-open https://      knob 2  media prev/next / play-pause
 3  Files     xdg-open "$HOME"       knob 3  mic volume / mute
 4  Music     strawberry             button 7  page next
@@ -353,17 +353,17 @@ Page: Apps
 
 Page: Dev
 1  VSCode    code
-2  Terminal  alacritty
+2  Terminal  konsole
 3  Browser   xdg-open https://
-4  git pull  alacritty -e bash -c 'git pull; read'
-5  git push  alacritty -e bash -c 'git push; read'
-6  git log   alacritty -e bash -c 'git log --oneline -20; read'
+4  git pull  konsole -e bash -c 'git pull; read'
+5  git push  konsole -e bash -c 'git push; read'
+6  git log   konsole -e bash -c 'git log --oneline -20; read'
 
 Page: System
 1  Screenshot  flameshot gui
 2  Recorder    simplescreenrecorder
 3  OBS         obs
-4  Monitor     alacritty -e btop
+4  Monitor     konsole -e btop
 5  Reboot      systemctl reboot
 6  Shutdown    systemctl poweroff
 ```
