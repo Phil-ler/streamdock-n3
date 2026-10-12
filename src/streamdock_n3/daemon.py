@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import os
 import select
+import shlex
 import signal
 import subprocess
 import threading
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from streamdock_n3 import config as configmod
-from streamdock_n3 import paths
+from streamdock_n3 import paths, terminals
 from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3.events import (
     BUTTON_NAMES,  # noqa: F401
@@ -44,11 +45,28 @@ SUPPORTED_DEVICES = [
 VID, PID = SUPPORTED_DEVICES[0]  # default for compatibility with older versions of the daemon that only supported one device.
 
 
-def run_command(command: str, *, dry_run: bool) -> None:
+def run_command(
+    command: str,
+    *,
+    dry_run: bool,
+    cwd: str | None = None,
+    show_output: bool = False,
+    title: str | None = None,
+    terminal_id: str | None = None,
+) -> None:
     print(f"run: {command}", flush=True)
     if dry_run:
         return
     env = os.environ.copy()
+    if show_output:
+        run_terminal_command(
+            command,
+            terminal_id=terminal_id,
+            cwd=cwd,
+            title=title or command,
+            env=env,
+        )
+        return
     subprocess.Popen(
         command,
         shell=True,
@@ -56,10 +74,110 @@ def run_command(command: str, *, dry_run: bool) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        cwd=os.path.expandvars(os.path.expanduser(cwd)) if cwd else None,
     )
 
 
-def run_actions(actions: Any, *, dry_run: bool) -> None:
+def run_terminal_command(
+    command: str | None,
+    *,
+    terminal_id: str | None,
+    dry_run: bool,
+    cwd: str | None = None,
+    title: str | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
+    argv = terminals.terminal_argv(terminal_id, command, cwd=cwd, title=title)
+    print(f"run in terminal: {shlex.join(argv)}", flush=True)
+    if dry_run:
+        return
+    subprocess.Popen(
+        argv,
+        shell=False,
+        env=env or os.environ.copy(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def run_argv(argv: list[str], *, dry_run: bool) -> None:
+    print(f"run: {shlex.join(argv)}", flush=True)
+    if dry_run:
+        return
+    subprocess.Popen(
+        argv,
+        shell=False,
+        env=os.environ.copy(),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def _validate_structured_action(action: Any) -> None:
+    if action is None or isinstance(action, str):
+        return
+    if isinstance(action, list):
+        for item in action:
+            _validate_structured_action(item)
+        return
+    if not isinstance(action, dict):
+        raise ValueError(f"unsupported action: {action!r}")
+    if "type" not in action:
+        return
+
+    action_type = action["type"]
+    if action_type == "shell":
+        command = action.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError("shell action requires a non-empty command")
+        cwd = action.get("cwd")
+        if cwd is not None and not isinstance(cwd, str):
+            raise ValueError("shell action cwd must be a path string")
+        show_output = action.get("show_output", False)
+        if not isinstance(show_output, bool):
+            raise ValueError("shell action show_output must be a boolean")
+        return
+    if action_type == "terminal":
+        command = action.get("command")
+        if command is not None and not isinstance(command, str):
+            raise ValueError("terminal action command must be a string")
+        return
+    if action_type == "launch":
+        argv = action.get("argv")
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or any(not isinstance(argument, str) or not argument for argument in argv)
+        ):
+            raise ValueError("launch action requires a non-empty argv list of strings")
+        return
+    if action_type == "open_url":
+        url = action.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("open_url action requires a non-empty URL")
+        return
+    if action_type == "sequence":
+        steps = action.get("steps")
+        delay_ms = action.get("delay_ms", 0)
+        if not isinstance(steps, list):
+            raise ValueError("sequence action requires a steps list")
+        if (
+            isinstance(delay_ms, bool)
+            or not isinstance(delay_ms, (int, float))
+            or delay_ms < 0
+        ):
+            raise ValueError("sequence delay_ms must be a non-negative number")
+        for step in steps:
+            _validate_structured_action(step)
+        return
+    raise ValueError(f"unsupported action type: {action_type!r}")
+
+
+def run_actions(actions: Any, *, dry_run: bool, terminal_id: str | None = None) -> None:
+    actions = configmod.resolve_action_references(actions)
+    _validate_structured_action(actions)
     if actions is None:
         return
     if isinstance(actions, str):
@@ -67,9 +185,48 @@ def run_actions(actions: Any, *, dry_run: bool) -> None:
         return
     if isinstance(actions, list):
         for action in actions:
-            run_actions(action, dry_run=dry_run)
+            run_actions(action, dry_run=dry_run, terminal_id=terminal_id)
         return
     if isinstance(actions, dict):
+        action_type = actions.get("type")
+        if action_type == "shell":
+            kwargs = {"cwd": actions["cwd"]} if actions.get("cwd") else {}
+            if actions.get("show_output"):
+                kwargs["show_output"] = True
+                kwargs["title"] = actions.get("name", actions["command"])
+                kwargs["terminal_id"] = terminal_id
+            run_command(actions["command"], dry_run=dry_run, **kwargs)
+            return
+        if action_type == "terminal":
+            run_terminal_command(
+                actions.get("command"),
+                terminal_id=terminal_id,
+                dry_run=dry_run,
+                cwd=actions.get("cwd"),
+                title=actions.get("name"),
+            )
+            return
+        if action_type == "launch":
+            run_argv(actions["argv"], dry_run=dry_run)
+            return
+        if action_type == "open_url":
+            run_argv(["xdg-open", actions["url"]], dry_run=dry_run)
+            return
+        if action_type == "sequence":
+            steps = actions["steps"]
+            delay_seconds = actions.get("delay_ms", 0) / 1000
+
+            def run_step(index: int) -> None:
+                run_actions(steps[index], dry_run=dry_run, terminal_id=terminal_id)
+                next_index = index + 1
+                if next_index < len(steps):
+                    timer = threading.Timer(delay_seconds, run_step, args=(next_index,))
+                    timer.daemon = True
+                    timer.start()
+
+            if steps:
+                run_step(0)
+            return
         command = actions.get("command")
         if command:
             run_command(str(command), dry_run=dry_run)
@@ -201,7 +358,12 @@ def warn_if_evdev_unreadable() -> None:
     _warn_unreadable("input event", streamdock_evdev_paths())
 
 
-def _dispatch_evdev(dev, actions: dict[str, Any], dry_run: bool) -> None:
+def _dispatch_evdev(
+    dev,
+    actions: dict[str, Any],
+    dry_run: bool,
+    terminal_id: str | None = None,
+) -> None:
     for event in dev.read():
         if event.type != ecodes.EV_KEY:
             continue
@@ -210,7 +372,7 @@ def _dispatch_evdev(dev, actions: dict[str, Any], dry_run: bool) -> None:
         for keycode in keycodes:
             mapped = evdev_event_key(str(keycode), event.value)
             print(f"evdev {keycode} value={event.value} [{mapped}]", flush=True)
-            run_actions(actions.get(mapped), dry_run=dry_run)
+            run_actions(actions.get(mapped), dry_run=dry_run, terminal_id=terminal_id)
 
 
 def wants_evdev_grab(actions: dict[str, Any], config: dict[str, Any]) -> bool:
@@ -236,6 +398,7 @@ def evdev_worker(
     actions_ref: list[dict[str, Any]],
     dry_run: bool,
     grab: bool = False,
+    terminal_ref: list[str] | None = None,
 ) -> None:
     if InputDevice is None:
         return
@@ -283,7 +446,12 @@ def evdev_worker(
                 break
             for dev in ready:
                 try:
-                    _dispatch_evdev(dev, actions_ref[0], dry_run)
+                    _dispatch_evdev(
+                        dev,
+                        actions_ref[0],
+                        dry_run,
+                        terminal_ref[0] if terminal_ref else None,
+                    )
                 except BlockingIOError:
                     pass
                 except OSError as exc:
@@ -316,7 +484,9 @@ def main(argv: list[str] | None = None) -> int:
 
     paths.ensure_runtime_dirs()
     config_path = args.config or configmod.ensure_config()
-    config = configmod.normalize(configmod.load(config_path))
+    config = configmod.load_normalized(config_path)
+    terminal_id = configmod.ensure_terminal_setting(config, config_path)
+    terminal_ref = [terminal_id]
 
     current_page = 0
     pages = get_pages(config)
@@ -368,7 +538,7 @@ def main(argv: list[str] | None = None) -> int:
                 switch_page(int(cmd))
 
         else:
-            run_actions(action, dry_run=args.dry_run)
+            run_actions(action, dry_run=args.dry_run, terminal_id=terminal_ref[0])
 
     exit_code = 0
     try:
@@ -388,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
         grab = wants_evdev_grab(actions_ref[0], config) and not args.no_grab
         evdev_thread = threading.Thread(
             target=evdev_worker,
-            args=(stop_event, actions_ref, args.dry_run, grab),
+            args=(stop_event, actions_ref, args.dry_run, grab, terminal_ref),
             daemon=True,
         )
         evdev_thread.start()

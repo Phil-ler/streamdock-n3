@@ -126,7 +126,7 @@ streamdock-n3-install  Install selected device udev rule, systemd user unit,
 
 | Status | Keys | Actions |
 |---|---|---|
-| ![Status tab](docs/screenshot-status.png) | ![Keys tab](docs/screenshot-keys.png) | ![Actions tab](docs/screenshot-actions.png) |
+| ![Status tab](src/streamdock_n3/img/readme_pics/screenshot-status.png) | ![Keys tab](src/streamdock_n3/img/readme_pics/screenshot-keys.png) | ![Actions tab](src/streamdock_n3/img/readme_pics/screenshot-actions.png) |
 
 - **Status** detects the dock via `/sys/bus/usb/devices`, exposes Start / Restart / Stop, brightness slider, and an Install button that detects and asks you to confirm the Mirabox or HOTSPOTEKUSB rule before running the privileged installer.
 - **Keys** has one card per LCD key. Each key is either **Label** mode (text + background color) or **Image** mode (custom image path, center-cropped to square). **Pick app…** scans `.desktop` files and assigns the chosen app's icon + `Exec` command in one step. Use the **◀ ▶** buttons to navigate between pages, **＋ Add page** to create a new one, and **🗑 Delete page** to remove the current one (disabled when only one page exists). The page name is editable inline.
@@ -455,7 +455,7 @@ install.sh           One-shot end-user installer.
 
 - Not a full clone of the Windows/macOS Stream Dock software UI.
 - Pages (multi-profile LCD layouts) are supported via the `pages` config key. The GUI supports adding, removing, and renaming pages.
-- Actions are shell commands in JSON.
+- Legacy shell commands remain supported. Structured actions also support application launch, URLs, terminal launch, and delayed sequences; keypress and text-entry actions are not implemented yet.
 - Knob event names may vary by firmware mode — use `streamdock-n3-debug` to confirm.
 - Whether the dock also emits media keycodes to the compositor depends on the
   firmware mode; `grab_evdev` exists for the modes where it does.
@@ -465,12 +465,17 @@ install.sh           One-shot end-user installer.
 
 ### Structured Actions and Sequential Macros
 
-- [ ] Define a structured action format while maintaining compatibility with existing shell commands.
-- [ ] Support ordered action sequences with configurable delays between steps.
-- [ ] Add common shell-free actions: launching applications, opening URLs, pressing keys, and entering text.
-- [ ] Update the GUI to create, reorder, and edit actions for a key or control.
-- [ ] Handle errors and macro cancellation clearly.
-- [ ] Add tests for parsing, compatibility with existing configuration, and sequence execution.
+- [x] Define a structured action format while maintaining compatibility with existing shell commands.
+- [x] Support ordered action sequences with configurable delays between steps.
+- [x] Add shell-free actions for launching applications and opening URLs.
+- [ ] Add shell-free actions for keypresses and text entry.
+- [x] Update the GUI to create and edit shell, application launch, URL, and terminal actions, including copies of action templates.
+- [ ] Add GUI support for reordering actions and visually editing sequences.
+- [ ] Handle macro errors and cancellation clearly.
+- [x] Add tests for action validation and sequence execution.
+- [ ] Expand compatibility tests for legacy configurations.
+- [x] Detect the default terminal, save the selection in the config, and allow choosing among installed emulators.
+- [x] Show command stdout and stderr in the selected terminal; add a Git Pull template with a user-owned copy and icon.
 
 ### Profiles and Folders
 

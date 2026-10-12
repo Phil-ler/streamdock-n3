@@ -34,6 +34,11 @@ def config_file() -> Path:
     return config_dir() / "config.json"
 
 
+def action_dir() -> Path:
+    """User-owned action definitions copied from packaged templates."""
+    return config_dir() / "actions"
+
+
 def app_icon_dir() -> Path:
     """Rasterised application icons picked in the GUI.
 
@@ -54,5 +59,12 @@ def gui_log_file() -> Path:
 
 
 def ensure_runtime_dirs() -> None:
-    for d in (config_dir(), cache_dir(), state_dir(), app_icon_dir(), generated_key_dir()):
+    for d in (
+        config_dir(),
+        cache_dir(),
+        state_dir(),
+        app_icon_dir(),
+        generated_key_dir(),
+        action_dir(),
+    ):
         d.mkdir(parents=True, exist_ok=True)

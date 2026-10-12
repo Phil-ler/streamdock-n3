@@ -2,6 +2,7 @@
   "brightness": 80,
   "grab_evdev": true,
   "theme": "system",
+  "terminal": "auto",
   "keys": {
     "1": { "label": "Term", "color": "#1c63b8" },
     "2": { "label": "Web", "color": "#188452" },
@@ -11,7 +12,7 @@
     "6": { "label": "Play", "color": "#ae365c" }
   },
   "actions": {
-    "button.1.press": "alacritty",
+    "button.1.press": { "type": "terminal" },
     "button.2.press": "xdg-open https://",
     "button.3.press": "xdg-open \"$HOME\"",
     "button.4.press": "obs",

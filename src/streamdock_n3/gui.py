@@ -6,6 +6,8 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +19,7 @@ from typing import Any
 from streamdock_n3 import config as configmod
 from streamdock_n3 import paths
 from streamdock_n3 import system_install as installmod
+from streamdock_n3 import terminals as terminalmod
 from streamdock_n3 import theme as thememod
 
 paths.ensure_runtime_dirs()
@@ -231,8 +234,66 @@ def render_action(value: Any) -> str:
     if isinstance(value, list):
         return "; ".join(render_action(item) for item in value)
     if isinstance(value, dict):
+        if value.get("type") == "reference":
+            return f"Action: {value.get('id', '')}"
+        if value.get("type") == "terminal":
+            return "Open selected terminal"
+        if value.get("type") == "shell":
+            return str(value.get("command", ""))
+        if value.get("type") == "launch":
+            argv = value.get("argv")
+            if isinstance(argv, list) and all(isinstance(arg, str) for arg in argv):
+                return shlex.join(argv)
+            return "Launch application"
+        if value.get("type") == "open_url":
+            return str(value.get("url", ""))
+        if value.get("type") == "sequence":
+            steps = value.get("steps")
+            count = len(steps) if isinstance(steps, list) else 0
+            return f"Sequence ({count} steps)"
         return str(value.get("command", ""))
     return "" if value is None else str(value)
+
+
+def build_action(
+    action_type: str,
+    value: str,
+    cwd: str = "",
+    show_output: bool = False,
+) -> Any:
+    value = value.strip()
+    if action_type == "terminal":
+        return {"type": "terminal"}
+    if action_type == "shell":
+        cwd = cwd.strip()
+        if not value:
+            return None
+        if cwd or show_output:
+            action = {"type": "shell", "command": value}
+            if cwd:
+                action["cwd"] = cwd
+            if show_output:
+                action["show_output"] = True
+            return action
+        return value
+    if action_type == "launch":
+        try:
+            argv = shlex.split(value)
+        except ValueError as exc:
+            raise ValueError("Enter a valid application command line") from exc
+        if not argv:
+            raise ValueError("Enter an application command")
+        return {"type": "launch", "argv": argv}
+    if action_type == "open_url":
+        if not value:
+            raise ValueError("Enter a URL")
+        return {"type": "open_url", "url": value}
+    raise ValueError(f"unsupported action type: {action_type!r}")
+
+
+def action_id_from_name(name: str) -> str:
+    action_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return action_id or "action"
 
 
 def parse_hex(color: Any) -> Gdk.RGBA:
@@ -401,7 +462,8 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Stream Dock N3")
         self._initial_tab = initial_tab
         self.set_default_size(680, 780)
-        self.config: dict[str, Any] = configmod.normalize(configmod.load())
+        self.config: dict[str, Any] = configmod.load_normalized()
+        configmod.ensure_terminal_setting(self.config)
         self._dirty = False
         self._toasts: list[Gtk.Revealer] = []
         self._status_probe_running = False
@@ -736,10 +798,9 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
         fields.append(label_stack)
 
-        action_entry = Gtk.Entry()
-        action_entry.set_text(self._action_str(f"button.{k}.press"))
-        action_entry.connect("changed", self.on_action_changed, f"button.{k}.press")
-        fields.append(field_row("Press", action_entry))
+        event = f"button.{k}.press"
+        action_control, action_entry = self._build_action_control(event)
+        fields.append(field_row("Press", action_control))
 
         body.append(fields)
         inner.append(body)
@@ -918,6 +979,21 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         w["preview"].queue_draw()
         self._mark_dirty()
 
+    def _build_action_control(self, event: str) -> tuple[Gtk.Widget, Gtk.Entry]:
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        entry = Gtk.Entry()
+        entry.set_hexpand(True)
+        entry.set_text(self._action_str(event))
+        entry.connect("changed", self.on_action_changed, event)
+        edit_btn = Gtk.Button(label="Edit…")
+        edit_btn.connect("clicked", self._on_edit_action, event)
+        template_btn = Gtk.Button(label="Templates…")
+        template_btn.connect("clicked", self._on_add_action_template, event)
+        row.append(entry)
+        row.append(edit_btn)
+        row.append(template_btn)
+        return row, entry
+
     def _build_actions_page(self) -> Gtk.Widget:
         scroll = Gtk.ScrolledWindow()
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -929,15 +1005,31 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
         self.action_entries: dict[str, Gtk.Entry] = {}
 
+        outer.append(section_label("Terminal"))
+        self.terminal_options = terminalmod.available_terminals()
+        self.terminal_ids = [item.id for item in self.terminal_options]
+        terminal_labels = [item.label for item in self.terminal_options]
+        if not terminal_labels:
+            terminal_labels = ["No supported terminal found"]
+        self.terminal_dropdown = Gtk.DropDown.new_from_strings(terminal_labels)
+        self.terminal_dropdown.set_sensitive(bool(self.terminal_options))
+        selected_terminal = self.config.get("terminal")
+        selected_index = (
+            self.terminal_ids.index(selected_terminal)
+            if selected_terminal in self.terminal_ids
+            else 0
+        )
+        self.terminal_dropdown.set_selected(selected_index)
+        self.terminal_dropdown.connect("notify::selected", self._on_terminal_selected)
+        outer.append(field_row("Terminal emulator", self.terminal_dropdown))
+
         outer.append(section_label("Round Buttons"))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         for k in ROUND_BUTTONS:
             event = f"button.{k}.press"
-            entry = Gtk.Entry()
-            entry.set_text(self._action_str(event))
-            entry.connect("changed", self.on_action_changed, event)
+            control, entry = self._build_action_control(event)
             self.action_entries[event] = entry
-            box.append(field_row(ROUND_LABELS[k], entry))
+            box.append(field_row(ROUND_LABELS[k], control))
         outer.append(card(box))
 
         for k in KNOBS:
@@ -945,11 +1037,9 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             kbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             for direction in ("left", "right", "press"):
                 event = f"knob.{k}.{direction}"
-                entry = Gtk.Entry()
-                entry.set_text(self._action_str(event))
-                entry.connect("changed", self.on_action_changed, event)
+                control, entry = self._build_action_control(event)
                 self.action_entries[event] = entry
-                kbox.append(field_row(direction.capitalize(), entry))
+                kbox.append(field_row(direction.capitalize(), control))
             outer.append(card(kbox))
 
         return scroll
@@ -970,6 +1060,298 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             page_actions = self._current_page_data().get("actions", {})
             return render_action(page_actions.get(event, ""))
         return render_action(self.config.get("actions", {}).get(event, ""))
+
+    def _on_terminal_selected(self, dropdown: Gtk.DropDown, _pspec) -> None:
+        index = dropdown.get_selected()
+        if index >= len(self.terminal_ids):
+            return
+        terminal_id = self.terminal_ids[index]
+        if self.config.get("terminal") == terminal_id:
+            return
+        self.config["terminal"] = terminal_id
+        self._mark_dirty()
+
+    def _sync_terminal_selection(self) -> None:
+        selected_terminal = self.config.get("terminal")
+        if selected_terminal in self.terminal_ids:
+            self.terminal_dropdown.set_selected(self.terminal_ids.index(selected_terminal))
+
+    def _action_value(self, event: str) -> Any:
+        if self._is_page_action(event):
+            return self._current_page_data().get("actions", {}).get(event, "")
+        return self.config.get("actions", {}).get(event, "")
+
+    def _store_action(self, event: str, value: Any) -> None:
+        if self._is_page_action(event):
+            actions = self._current_page_data().setdefault("actions", {})
+        else:
+            actions = self.config.setdefault("actions", {})
+        if value is None:
+            actions.pop(event, None)
+        else:
+            actions[event] = value
+
+        entry = self.action_entries.get(event)
+        if entry is None and event.startswith("button."):
+            key = int(event.split(".")[1])
+            entry = self.key_widgets.get(key, {}).get("action")
+        if entry is not None:
+            entry.set_text(render_action(value))
+        self._mark_dirty()
+
+    def _on_edit_action(self, _btn: Gtk.Button, event: str) -> None:
+        current = self._action_value(event)
+        reference_id = None
+        if isinstance(current, dict) and current.get("type") == "reference":
+            reference_id = current.get("id")
+            try:
+                current = configmod.load_user_action(reference_id)
+            except (ValueError, OSError) as exc:
+                self.toast(f"Could not load action: {exc}")
+                return
+
+        action_types = ["terminal", "shell", "launch", "open_url"]
+        action_type = "shell"
+        value = current if isinstance(current, str) else ""
+        cwd_value = ""
+        show_output = False
+
+        if isinstance(current, dict):
+            action_type = current.get("type", "shell")
+            if action_type == "shell":
+                value = str(current.get("command", ""))
+                cwd_value = str(current.get("cwd", ""))
+                show_output = bool(current.get("show_output", False))
+            elif action_type == "terminal":
+                pass
+            elif action_type == "launch":
+                argv = current.get("argv", [])
+                value = shlex.join(argv) if isinstance(argv, list) and all(
+                    isinstance(arg, str) for arg in argv
+                ) else ""
+            elif action_type == "open_url":
+                value = str(current.get("url", ""))
+            else:
+                self.toast("This action type cannot be edited here yet")
+                return
+        if action_type not in action_types:
+            action_type = "shell"
+
+        dialog = Gtk.Dialog(title="Edit Action", transient_for=self, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Apply", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(8)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+
+        kinds = ["terminal", "shell", "launch", "open_url"]
+        kind_labels = ["Open selected terminal", "Shell command", "Launch application", "Open URL"]
+        selector = Gtk.DropDown.new_from_strings(
+            kind_labels
+        )
+        fields = Gtk.Stack()
+        editors: dict[str, Gtk.Entry] = {}
+        labels = {
+            "shell": ("Command", "Enter a shell command"),
+            "launch": ("Application and arguments", "e.g. code --reuse-window"),
+            "open_url": ("URL", "https://example.com"),
+        }
+        cwd_editor = Gtk.Entry()
+        cwd_editor.set_text(cwd_value)
+        cwd_editor.set_placeholder_text("Repository folder (optional)")
+        cwd_editor.set_hexpand(True)
+        output_toggle = Gtk.CheckButton(label="Show output when finished")
+        output_toggle.set_active(show_output)
+        for kind in kinds:
+            if kind == "terminal":
+                fields.add_named(
+                    Gtk.Label(label="Opens the terminal emulator selected above.", xalign=0),
+                    kind,
+                )
+                continue
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            label, placeholder = labels[kind]
+            editor = Gtk.Entry()
+            editor.set_text(value if action_type == kind else "")
+            editor.set_placeholder_text(placeholder)
+            editor.set_hexpand(True)
+            editors[kind] = editor
+            page.append(field_row(label, editor))
+            if kind == "shell":
+                page.append(field_row("Working directory", cwd_editor))
+                page.append(output_toggle)
+            fields.add_named(page, kind)
+
+        selector.set_selected(kinds.index(action_type))
+        fields.set_visible_child_name(action_type)
+        selector.connect(
+            "notify::selected",
+            lambda dropdown, _pspec: fields.set_visible_child_name(
+                kinds[dropdown.get_selected()]
+            ),
+        )
+        content.append(field_row("Action type", selector))
+        content.append(fields)
+
+        def on_response(dlg: Gtk.Dialog, response: int) -> None:
+            if response != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            selected_kind = kinds[selector.get_selected()]
+            try:
+                action = build_action(
+                    selected_kind,
+                    editors[selected_kind].get_text() if selected_kind in editors else "",
+                    cwd_editor.get_text() if selected_kind == "shell" else "",
+                    output_toggle.get_active() if selected_kind == "shell" else False,
+                )
+            except ValueError as exc:
+                self.toast(str(exc))
+                return
+            dlg.destroy()
+            if reference_id:
+                if action is None:
+                    self._store_action(event, None)
+                    return
+                if isinstance(action, str):
+                    action = {"type": "shell", "command": action}
+                action["name"] = current.get("name", reference_id)
+                try:
+                    configmod.save_user_action(reference_id, action)
+                except (TypeError, ValueError, OSError) as exc:
+                    self.toast(f"Could not save action: {exc}")
+                    return
+                self._store_action(event, {"type": "reference", "id": reference_id})
+            else:
+                self._store_action(event, action)
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _on_add_action_template(self, _btn: Gtk.Button, event: str) -> None:
+        try:
+            templates = configmod.list_action_templates()
+        except (OSError, ValueError) as exc:
+            self.toast(f"Could not load templates: {exc}")
+            return
+        if not templates:
+            self.toast("No action templates are available")
+            return
+
+        dialog = Gtk.Dialog(title="Create Action from Template", transient_for=self, modal=True)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Create", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(8)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+
+        selector = Gtk.DropDown.new_from_strings([template["name"] for template in templates])
+        name_entry = Gtk.Entry()
+        name_entry.set_text(str(templates[0].get("name", "")))
+        name_entry.set_placeholder_text("Name for your action")
+        description = Gtk.Label(label=str(templates[0].get("description", "")), xalign=0)
+        description.set_wrap(True)
+
+        cwd_entry = Gtk.Entry()
+        cwd_entry.set_placeholder_text("Select the repository folder")
+        cwd_entry.set_hexpand(True)
+        browse_button = Gtk.Button(label="Browse…")
+        cwd_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        cwd_row.append(cwd_entry)
+        cwd_row.append(browse_button)
+        cwd_field = field_row("Repository folder", cwd_row)
+
+        def update_template(_dropdown, _pspec=None) -> None:
+            template = templates[selector.get_selected()]
+            name_entry.set_text(str(template.get("name", "")))
+            description.set_text(str(template.get("description", "")))
+            template_action = template.get("action", {})
+            is_shell = template_action.get("type") == "shell"
+            cwd_field.set_visible(is_shell)
+            cwd_entry.set_text(str(template_action.get("cwd", "")))
+
+        selector.connect("notify::selected", update_template)
+        browse_button.connect("clicked", self._on_browse_action_directory, cwd_entry)
+        content.append(field_row("Template", selector))
+        content.append(description)
+        content.append(field_row("Action name", name_entry))
+        content.append(cwd_field)
+
+        def on_response(dlg: Gtk.Dialog, response: int) -> None:
+            if response != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            template = templates[selector.get_selected()]
+            name = name_entry.get_text().strip()
+            if not name:
+                self.toast("Enter a name for this action")
+                return
+            template_action = template.get("action", {})
+            cwd = cwd_entry.get_text().strip()
+            if template.get("requires_cwd") and not cwd:
+                self.toast("Choose a repository folder")
+                return
+
+            base_id = action_id_from_name(name)
+            action_id = base_id
+            suffix = 2
+            while (paths.action_dir() / f"{action_id}.json").exists():
+                action_id = f"{base_id}-{suffix}"
+                suffix += 1
+            try:
+                configmod.copy_action_template(template["id"], action_id)
+                user_action = configmod.load_user_action(action_id)
+                user_action["name"] = name
+                if template_action.get("type") == "shell":
+                    user_action["cwd"] = cwd
+                configmod.save_user_action(action_id, user_action)
+            except (FileExistsError, OSError, ValueError) as exc:
+                self.toast(f"Could not create action: {exc}")
+                return
+            dlg.destroy()
+            self._store_action(event, {"type": "reference", "id": action_id})
+            icon_path = user_action.get("icon")
+            if isinstance(icon_path, str):
+                self._apply_action_icon(event, icon_path)
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _apply_action_icon(self, event: str, icon_path: str) -> None:
+        if not self._is_page_action(event):
+            return
+        key = int(event.split(".")[1])
+        cfg = self._key_cfg(key)
+        cfg["icon"] = icon_path
+        widgets = self.key_widgets.get(key)
+        if widgets:
+            widgets["path"].set_text(icon_path)
+            widgets["image_toggle"].set_active(True)
+            widgets["stack"].set_visible_child_name("image")
+            widgets["preview"].queue_draw()
+        self._mark_dirty()
+
+    def _on_browse_action_directory(self, _btn: Gtk.Button, entry: Gtk.Entry) -> None:
+        dialog = Gtk.FileDialog()
+
+        def on_selected(file_dialog: Gtk.FileDialog, result) -> None:
+            try:
+                folder = file_dialog.select_folder_finish(result)
+            except GLib.Error as exc:
+                log.info("action directory selection cancelled: %s", exc.message)
+                return
+            if folder is not None and folder.get_path():
+                entry.set_text(folder.get_path())
+
+        dialog.select_folder(self, None, on_selected)
 
     def _mark_dirty(self) -> None:
         if not self._dirty:
@@ -1083,12 +1465,14 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_reload(self, _btn: Gtk.Button) -> None:
         try:
-            self.config = configmod.normalize(configmod.load())
+            self.config = configmod.load_normalized()
+            configmod.ensure_terminal_setting(self.config)
         except Exception as exc:  # noqa: BLE001
             self.toast(f"Reload failed: {exc}")
             return
         self._current_page = 0
         self.brightness_adj.set_value(int(self.config.get("brightness", 80)))
+        self._sync_terminal_selection()
         self._refresh_nav()
         for k, w in self.key_widgets.items():
             cfg = self._key_cfg(k)

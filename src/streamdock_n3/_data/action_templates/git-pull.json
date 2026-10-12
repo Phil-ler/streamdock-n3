@@ -1,0 +1,12 @@
+{
+  "name": "Git pull",
+  "description": "Run git pull in a repository directory.",
+  "requires_cwd": true,
+  "icon": "img/git_pull.png",
+  "action": {
+    "type": "shell",
+    "command": "git pull",
+    "cwd": "",
+    "show_output": true
+  }
+}

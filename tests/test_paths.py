@@ -10,6 +10,7 @@ def test_dirs_honour_xdg_env(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     assert paths.config_file() == tmp_path / "cfg/streamdock-n3/config.json"
+    assert paths.action_dir() == tmp_path / "cfg/streamdock-n3/actions"
     assert paths.systemd_user_dir() == tmp_path / "cfg/systemd/user"
     assert paths.app_icon_dir() == tmp_path / "state/streamdock-n3/icons"
     assert paths.generated_key_dir() == tmp_path / "cache/streamdock-n3/keys"
@@ -29,3 +30,4 @@ def test_ensure_runtime_dirs_creates_everything(monkeypatch, tmp_path):
     for d in (paths.config_dir(), paths.cache_dir(), paths.state_dir(),
               paths.app_icon_dir(), paths.generated_key_dir()):
         assert d.is_dir(), d
+        assert paths.action_dir().is_dir()
