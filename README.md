@@ -460,3 +460,37 @@ install.sh           One-shot end-user installer.
 - Whether the dock also emits media keycodes to the compositor depends on the
   firmware mode; `grab_evdev` exists for the modes where it does.
 - The vendored SDK is bundled because the upstream pip package did not include the Linux native transport in this environment.
+
+## Roadmap
+
+### Structured Actions and Sequential Macros
+
+- [ ] Define a structured action format while maintaining compatibility with existing shell commands.
+- [ ] Support ordered action sequences with configurable delays between steps.
+- [ ] Add common shell-free actions: launching applications, opening URLs, pressing keys, and entering text.
+- [ ] Update the GUI to create, reorder, and edit actions for a key or control.
+- [ ] Handle errors and macro cancellation clearly.
+- [ ] Add tests for parsing, compatibility with existing configuration, and sequence execution.
+
+### Profiles and Folders
+
+- [ ] Define the distinction between profiles and pages, along with their configuration format.
+- [ ] Implement profile creation, renaming, duplication, deletion, and selection.
+- [ ] Implement nested folders or equivalent navigation on the LCD keys.
+- [ ] Add on-device navigation for entering and leaving folders and switching profiles.
+- [ ] Support importing and exporting profiles without unintentionally overwriting existing configuration.
+- [ ] Add tests for navigation, persistence, and migration from current configurations.
+
+### Integrations and Dynamic Feedback
+
+- [ ] Define an interface for extensible integrations with applications and services.
+- [ ] Choose and implement an initial integration, such as OBS or media controls.
+- [ ] Define how integrations communicate state and updates to the daemon.
+- [ ] Update key icons or content based on integration state.
+- [ ] Handle periodic updates, disconnections, and unavailable integrations.
+- [ ] Add tests with simulated integrations, without depending on real applications.
+
+### Hardware Exploration
+
+- [ ] Verify background image transmission and rendering through the SDK on the Stream Dock N3.
+- [ ] Verify which touch events, if any, the device exposes and whether they can be used by the project.
