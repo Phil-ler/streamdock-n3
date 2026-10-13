@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.gui_source import load_gui_function
@@ -63,6 +65,11 @@ def test_build_action_creates_structured_values():
         "cwd": "/home/user/project",
         "show_output": True,
     }
+
+
+def test_default_repository_directory_uses_checkout_root():
+    default_repository_directory = load_gui_function("default_repository_directory")
+    assert default_repository_directory() == str(Path.cwd())
 
 
 def test_build_action_rejects_invalid_launch_input():

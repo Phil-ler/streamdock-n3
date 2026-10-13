@@ -276,6 +276,7 @@ def build_action(
                 action["show_output"] = True
             return action
         return value
+
     if action_type == "launch":
         try:
             argv = shlex.split(value)
@@ -289,6 +290,16 @@ def build_action(
             raise ValueError("Enter a URL")
         return {"type": "open_url", "url": value}
     raise ValueError(f"unsupported action type: {action_type!r}")
+
+
+def default_repository_directory() -> str:
+    current_directory = Path.cwd()
+    if (current_directory / ".git").exists():
+        return str(current_directory)
+    source_root = Path(__file__).resolve().parents[2]
+    if (source_root / ".git").exists():
+        return str(source_root)
+    return str(current_directory)
 
 
 def action_id_from_name(name: str) -> str:
@@ -1113,15 +1124,15 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         action_types = ["terminal", "shell", "launch", "open_url"]
         action_type = "shell"
         value = current if isinstance(current, str) else ""
-        cwd_value = ""
-        show_output = False
+        cwd_value = default_repository_directory()
+        show_output = True
 
         if isinstance(current, dict):
             action_type = current.get("type", "shell")
             if action_type == "shell":
                 value = str(current.get("command", ""))
-                cwd_value = str(current.get("cwd", ""))
-                show_output = bool(current.get("show_output", False))
+                cwd_value = str(current.get("cwd") or default_repository_directory())
+                show_output = bool(current.get("show_output", True))
             elif action_type == "terminal":
                 pass
             elif action_type == "launch":
@@ -1261,6 +1272,12 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         description.set_wrap(True)
 
         cwd_entry = Gtk.Entry()
+        first_action = templates[0].get("action", {})
+        cwd_entry.set_text(
+            str(first_action.get("cwd") or default_repository_directory())
+            if first_action.get("type") == "shell"
+            else ""
+        )
         cwd_entry.set_placeholder_text("Select the repository folder")
         cwd_entry.set_hexpand(True)
         browse_button = Gtk.Button(label="Browse…")
@@ -1276,7 +1293,11 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             template_action = template.get("action", {})
             is_shell = template_action.get("type") == "shell"
             cwd_field.set_visible(is_shell)
-            cwd_entry.set_text(str(template_action.get("cwd", "")))
+            cwd_entry.set_text(
+                str(template_action.get("cwd") or default_repository_directory())
+                if is_shell
+                else ""
+            )
 
         selector.connect("notify::selected", update_template)
         browse_button.connect("clicked", self._on_browse_action_directory, cwd_entry)
@@ -1296,6 +1317,8 @@ class StreamDockWindow(Gtk.ApplicationWindow):
                 return
             template_action = template.get("action", {})
             cwd = cwd_entry.get_text().strip()
+            if template_action.get("type") == "shell" and not cwd:
+                cwd = default_repository_directory()
             if template.get("requires_cwd") and not cwd:
                 self.toast("Choose a repository folder")
                 return

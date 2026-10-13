@@ -53,6 +53,7 @@ def test_shell_action_uses_selected_terminal_for_output(monkeypatch):
             "git pull",
             {
                 "terminal_id": "konsole",
+                "dry_run": False,
                 "cwd": "/repo",
                 "title": "Git pull",
                 "env": daemon.os.environ.copy(),

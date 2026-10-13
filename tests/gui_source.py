@@ -24,6 +24,12 @@ def load_gui_function(name: str):
     # gui.py has `from __future__ import annotations`, the extracted snippet
     # does not, so annotations are evaluated on 3.11/3.12 and their names have
     # to be present.
-    ns: dict = {"Any": typing.Any, "shlex": shlex, "re": re}
+    ns: dict = {
+        "Any": typing.Any,
+        "Path": Path,
+        "__file__": str(GUI_PATH),
+        "shlex": shlex,
+        "re": re,
+    }
     exec(text[start:end], ns)
     return ns[name]

@@ -62,6 +62,7 @@ def run_command(
         run_terminal_command(
             command,
             terminal_id=terminal_id,
+            dry_run=dry_run,
             cwd=cwd,
             title=title or command,
             env=env,
